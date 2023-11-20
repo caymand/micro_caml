@@ -1,0 +1,5 @@
+(library
+ (preprocess
+  (pps ppx_deriving.show ppx_deriving.ord))
+ (flags :standard -warn-error -27-32-69)
+ (name micro_caml))

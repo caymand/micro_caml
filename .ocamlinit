@@ -1,0 +1,25 @@
+#require "ppx_deriving.show"
+#directory "lib"
+#mod_use "state.ml";;
+#mod_use "types.ml";;
+#mod_use "names.ml";;
+#mod_use "graph.ml";;
+open Types 
+module Float_Graph = Graph.Make_Graph(Float_t)
+
+let _ = Names.with_fresh @@ (fun _ ->
+  let open Float_Graph in
+  let a = value_of 1.0  in
+  let c = a * a + a in 
+  let nodes = traverse c in
+  print_endline @@ [%show: node list] nodes
+  (* List.iter (fun n -> show_node n |> print_endline) nodes; *)
+  (* let nodes = traverse c |> backwards in
+  print_endline "[";
+  List.iter(fun ns ->
+    print_endline "[";
+    List.iter (fun n -> show_node n |> print_endline) ns;
+    print_endline "]";
+  ) nodes;
+  print_endline "]"; *)
+)

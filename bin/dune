@@ -1,0 +1,4 @@
+(executable
+ (public_name micro_caml)
+ (name main)
+ (libraries micro_caml))
