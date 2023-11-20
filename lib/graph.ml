@@ -25,7 +25,9 @@ module type Graph = sig
   val ( + ) : t -> t -> t
   val ( * ) : t -> t -> t
   val value_of : dtype -> t
+  val const : dtype -> t
   val traverse : t -> node list
+  val backward : t -> (string * t) list
 end
 
 module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = struct
@@ -83,6 +85,12 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     make_val name expr
   ;;
 
+  let const v =
+    let name = Names.fresh ~base_name:"const_" ()
+    and expr = Atom (Const (DType.value_of v)) in
+    make_val name expr
+  ;;
+
   module Value_Env = struct
     type u = t [@@deriving show]
     type t = (string * u) list [@@deriving show]
@@ -118,15 +126,14 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     let tag =
       match List.assoc_opt value.tag (Tags.get ()) with
       | Some value' -> value'.tag
-      | None ->
-        (* value.tag *)
-        (rename value.tag).tag
+      | None -> (rename value.tag).tag
     in
     let value = make_val tag expr in
     { value; parents; grad }
   ;;
 
   (* Traverse the graph from the root and produce a Wengert List*)
+  (* I do not think we should augment graph*)
   let traverse root =
     let to_visit = Queue.create () in
     Queue.push ([], root) to_visit;
@@ -160,17 +167,26 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
         ()
     in
     print_endline "Last state";
+    print_endline "------";
     print_endline @@ [%show: Value_Env.t] env;
+    print_endline "------";
     traversal
   ;;
 
+  let grad_val ?(tag = "") expr =
+    let tag = Names.fresh ~base_name:(tag ^ "grad_") () in
+    make_val tag expr
+  ;;
+
   (* Derivative wrt. dependent variable*)
-  let backward_op node dependent_var =
+  let backward_op node =
+    let out_grad = grad_val ~tag:node.value.tag node.grad in
     match node.value.expr with
-    | Add _ -> one
-    | Mul _ -> one
-    | Atom (Const _) -> zero
-    | Atom (Val v) -> if dependent_var == node.value.tag then Atom (Const v) else zero
+    | Add (v1, v2) -> [ v1.tag, out_grad; v2.tag, out_grad ]
+    | Mul (v1, v2) ->
+      [ v1.tag, grad_val @@ Mul (v2, out_grad); v2.tag, grad_val @@ Mul (v1, out_grad) ]
+    | Atom (Const _) -> [ "atom", grad_val zero ]
+    | Atom (Val _) -> [ "atom", grad_val one ]
     | _ -> failwith "Not implemented"
   ;;
 
@@ -179,6 +195,18 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
        Therefore, when we reach a node, all previously visited nodes are either successors
        or some ancestor.*)
     let tape = traverse graph in
-    tape
+    print_endline @@ [%show: node list] tape;
+    List.fold_left
+      (fun acc node ->
+        let child_grads = backward_op node in
+        List.fold_left
+          (fun acc' (tag, e1) ->
+            match List.assoc_opt tag acc' with
+            | Some e2 -> (tag, grad_val @@ Add (e1, e2)) :: List.remove_assq tag acc'
+            | None -> (tag, e1) :: acc')
+          acc
+          child_grads)
+      []
+      tape
   ;;
 end
