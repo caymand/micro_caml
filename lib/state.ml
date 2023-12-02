@@ -16,7 +16,6 @@ module Make (M : sig
   type t = M.t
   type 'a state = { s : t -> 'a * t }
   type _ Effect.t += Get : t Effect.t | Put : t -> unit Effect.t
-  (* | State : (t -> 'a * t) -> unit Effect.t *)
 
   let put v = perform (Put v)
   let get () = perform Get
@@ -58,9 +57,3 @@ module Make (M : sig
     state_builder.s init
   ;;
 end
-
-(* module Assoc_List = struct
-   type t = (int * int) list
-   end
-
-   module Assoc_State = State(Assoc_List) *)
