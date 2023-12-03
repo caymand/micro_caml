@@ -1,6 +1,7 @@
 # Toy Example of Reverse Mode AutoDiff
 
-[lib.graph.ml](graph.ml) is the main function used to build computations.
+The `build` funciton within [lib.graph.ml](graph.ml) is the main function used to build computations.
+
 This small example adds to values and computes their derivative
 
 ```ocaml
