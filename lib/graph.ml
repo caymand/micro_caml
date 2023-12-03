@@ -16,13 +16,6 @@ module type Graph = sig
     | Atom of atom
   [@@deriving show]
 
-  type node =
-    { value : t
-    ; parents : string list
-    ; grad : expr
-    }
-  [@@deriving show]
-
   val ( + ) : t -> t -> t
   val ( * ) : t -> t -> t
   val value_of : dtype -> t
@@ -60,13 +53,6 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     | Atom of atom
   [@@deriving show]
 
-  type node =
-    { value : t
-    ; parents : string list
-    ; grad : expr
-    }
-  [@@deriving show]
-
   (* type tape = node list *)
 
   let one = Atom One
@@ -97,6 +83,7 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     make_val name expr
   ;;
 
+  (* Do BFS traversal of the graph.*)
   let walk_comp graph =
     let to_visit = Queue.create () in
     let rec bfs visited node =
@@ -187,6 +174,9 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
         | Add (e1, e2) ->
           update_grad z e1.tag (fun _ -> make_val "one_" one);
           update_grad z e2.tag (fun _ -> make_val "one_" one)
+        | Mul (e1, e2) ->
+          update_grad z e1.tag (fun _ -> e2);
+          update_grad z e2.tag (fun _ -> e1)
         | Atom (Ident _) ->
           (* All identifiers should only appear within compound statements.
              As such this should never happesn.*)

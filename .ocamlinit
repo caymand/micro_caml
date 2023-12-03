@@ -9,9 +9,9 @@ module Float_Graph = Graph.Make_Graph(Float_t)
 
 let _ = Float_Graph.build (fun () ->
   let open Float_Graph in
-  let a = value_of 2.0 in
+  let a = value_of 4.0 in
   let b = value_of 1.0 in
-  let c = a + a + b + b + a in
+  let c = (const 2.0) * a + a * b in
   backward c;
   let ga = grad a in
   let gb = grad b in
