@@ -27,10 +27,12 @@ module type Graph = sig
   val ( * ) : t -> t -> t
   val value_of : dtype -> t
   val const : dtype -> t
-  val traverse : t -> t list
+  val walk_comp : t -> t list
   val make_tape : t list -> (string * t) list
-  val backward : (string * t) list -> (string * t) list
-  val realize : t -> (string * t) list -> dtype
+  val build : (unit -> unit) -> unit
+  val backward : t -> unit
+  val grad : t -> t
+  val realize : t -> dtype
 end
 
 module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = struct
@@ -95,7 +97,7 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     make_val name expr
   ;;
 
-  let traverse graph =
+  let walk_comp graph =
     let to_visit = Queue.create () in
     let rec bfs visited node =
       (match node.expr with
@@ -186,22 +188,44 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
           update_grad z e1.tag (fun _ -> make_val "one_" one);
           update_grad z e2.tag (fun _ -> make_val "one_" one)
         | Atom (Ident _) ->
-          (* All identifiers shoudl only appear within compound statements.
+          (* All identifiers should only appear within compound statements.
              As such this should never happesn.*)
           failwith "Incorrect tape"
         | _ -> failwith "")
       tape
   ;;
 
-  let backward tape =
+  let backward graph =
+    let tape = walk_comp graph |> make_tape in
+    (* Seed the gradient of the last node.*)
     let last_node, _ = List.hd tape in
-    let _, grads =
-      Grads.withState ~init:[ last_node, make_val "grad_" one ] backward' tape
-    in
-    grads
+    (* Woudl be prettifer with effect that resembles reader monad*)
+    Grads.put [ last_node, make_val "grad_" one ];
+    backward' tape
   ;;
 
-  let rec realize grad all_grads =
+  let grad leaf =
+    match List.assoc_opt leaf.tag (Grads.get ()) with
+    | Some g -> g
+    | None -> failwith "Node not in graph"
+  ;;
+
+  (* let _, grads =
+     Grads.withState
+     ~init:[ last_node, make_val "grad_" one ]
+     (fun tape -> backward' tape)
+     tape
+     in
+     List.assoc value.tag grads *)
+
+  let build (comp : unit -> 'a) =
+    Names.with_fresh (fun _ ->
+      let res, _final_state = Grads.withState ~init:[] comp () in
+      res)
+  ;;
+
+  let rec realize grad =
+    let all_grads = Grads.get () in
     match grad.expr with
     | Atom Zero -> DType.zero
     | Atom One -> DType.one
@@ -209,8 +233,8 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     | Atom (Val v) -> v
     | Atom (Ident z) ->
       let gz = List.assoc z all_grads in
-      realize gz all_grads
-    | Mul (v1, v2) -> DType.( * ) (realize v1 all_grads) (realize v2 all_grads)
-    | Add (v1, v2) -> DType.( + ) (realize v1 all_grads) (realize v2 all_grads)
+      realize gz
+    | Mul (v1, v2) -> DType.( * ) (realize v1) (realize v2)
+    | Add (v1, v2) -> DType.( + ) (realize v1) (realize v2)
   ;;
 end

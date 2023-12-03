@@ -7,7 +7,7 @@ let fresh ?(base_name = "x_") () = perform (Fresh_Name base_name)
 
 let with_fresh comp =
   let base_name = "x_" in
-  let rec create_generator count name (k : (string, unit) continuation) =
+  let rec create_generator count name (k : (string, 'a) continuation) =
     continue_with
       k
       name

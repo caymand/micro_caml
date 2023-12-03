@@ -7,26 +7,17 @@
 open Types 
 module Float_Graph = Graph.Make_Graph(Float_t)
 
-let _ = Names.with_fresh @@ (fun _ ->
+let _ = Float_Graph.build (fun () ->
   let open Float_Graph in
-  let a = value_of 2.0  in
+  let a = value_of 2.0 in
   let b = value_of 1.0 in
-  let two = const 2.0 in
-  let c = two + a + a + b  in 
-  let topo_sort = traverse c in
-  let tape = make_tape topo_sort in
-  print_endline "TOPO sort";
-  print_endline @@ [%show: (t) list] topo_sort;
-  print_endline "TAPE";
-  print_endline @@ [%show: (string * t) list] tape;
-  print_endline "Backward";
-  let grads = backward tape in
-  print_endline @@ [%show: (string * t) list] grads;
-
-  let grad_x0 = List.assoc "x_0" grads in 
-  let gx0 = realize grad_x0 grads in
-  let grad_x1 = List.assoc "x_1" grads in 
-  let gx1 = realize grad_x0 grads in
-  Printf.printf "Grad x_0: %f, x_1: %f" gx0 gx1; 
-
+  let c = a + a + b + b + a in
+  backward c;
+  let ga = grad a in
+  let gb = grad b in
+  print_endline @@ show ga;
+  Printf.printf "Grad a: %f\n" (realize ga);
+  print_endline @@ show gb;
+  Printf.printf "Grad b: %f\n" (realize gb);
 )
+
