@@ -1,3 +1,5 @@
+(* Effect based state. *)
+
 module type STATE = sig
   type t
 

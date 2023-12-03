@@ -1,3 +1,5 @@
+(* Primitive types that the graph is built from.*)
+
 module type Data_Type = sig
   type t
 
