@@ -5,7 +5,8 @@ module type Graph = sig
   type atom =
     | Zero
     | One
-    | Ident of string
+    | Ident of string (* Identifier variable *)
+    | Adjoint of string (* Adjoint variable. TODO: remove *)
     | Val of dtype
     | Const of dtype
   [@@deriving show]
@@ -43,6 +44,7 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     | Zero
     | One
     | Ident of string
+    | Adjoint of string
     | Val of dtype
     | Const of dtype
   [@@deriving show]
@@ -56,7 +58,7 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
   (* type tape = node list *)
 
   let one = Atom One
-  let zero = Atom Zero
+  (* let zero = Atom Zero *)
   let make_val tag expr = { tag; expr }
 
   let ( + ) v1 v2 =
@@ -103,7 +105,7 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
 
   let fresh_tag base_name = Names.fresh ~base_name ()
 
-  let fresh_val tag =
+  let fresh_ident tag =
     let tag' = Names.fresh ~base_name:tag () in
     make_val tag' (Atom (Ident tag'))
   ;;
@@ -122,13 +124,13 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
             let e1' = List.assoc e1.tag nodes in
             let e2' = List.assoc e2.tag nodes in
             let rhs = e1' + e2' in
-            let lhs = fresh_val "z_" in
+            let lhs = fresh_ident "z_" in
             (node.tag, lhs) :: (lhs.tag, rhs) :: nodes
           | Mul (e1, e2) ->
             let e1' = List.assoc e1.tag nodes in
             let e2' = List.assoc e2.tag nodes in
             let rhs = e1' * e2' in
-            let lhs = fresh_val "z_" in
+            let lhs = fresh_ident "z_" in
             (node.tag, lhs) :: (lhs.tag, rhs) :: nodes
           | _ -> failwith "")
         []
@@ -143,26 +145,36 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
       tape
   ;;
 
+  (* Woudl be prettifer with effect that resembles reader monad*)
   module Grad_Env = struct
-    type u = t [@@deriving show]
-    type t = (string * u) list [@@deriving show]
+    type u = t 
+    type tape = (string * u) list
+
+    type t =
+      { forward_tape : tape (* Stores the adjoint variables *)
+      ; backward_tape : tape
+      }
   end
 
   module Grads = State.Make (Grad_Env)
 
-  (*TODO: might be useful to have functional environments instead of association lists*)
   let update_grad z v op =
-    Grads.modify (fun grads ->
-      (* Instead of copying the grad over, make a reference to it.*)
-      let gz = make_val (fresh_tag @@ z ^ "_") @@ Atom (Ident z) in
-      match List.assoc_opt v grads with
-      | None -> (v, gz * op v) :: grads
-      | Some gv ->
-        let grads' = List.remove_assoc v grads in
-        let gv' = gv + (gz * op v) in
-        (v, gv') :: grads')
+    Grads.modify (fun state ->
+      let grads = state.backward_tape in
+      let grads' =
+        (* Instead of copying the grad over, make a reference to the adjoint.*)
+        let gz = make_val (fresh_tag @@ z ^ "_") @@ Atom (Adjoint z) in
+        match List.assoc_opt v grads with
+        | None -> (v, gz * op v) :: grads
+        | Some gv ->
+          let grads' = List.remove_assoc v grads in
+          let gv' = gv + (gz * op v) in
+          (v, gv') :: grads'
+      in
+      { state with backward_tape = grads' })
   ;;
 
+  (* The problem is mixing backwards and forwards nodes. *)
   let backward' tape =
     List.iter
       (fun (z, node) ->
@@ -175,52 +187,51 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
         | Mul (e1, e2) ->
           update_grad z e1.tag (fun _ -> e2);
           update_grad z e2.tag (fun _ -> e1)
-        | Atom (Ident _) ->
-          (* All identifiers should only appear within compound statements.
-             As such this should never happesn.*)
-          failwith "Incorrect tape"
-        | _ -> failwith "")
+        | _ -> failwith "Incorrect tape")
       tape
   ;;
 
+  (* This simply builds the backwards tape. It then has to be realized *)
   let backward graph =
     let tape = walk_comp graph |> make_tape in
     (* Seed the gradient of the last node.*)
     let last_node, _ = List.hd tape in
-    (* Woudl be prettifer with effect that resembles reader monad*)
-    Grads.put [ last_node, make_val "grad_" one ];
+    let seed = make_val "seed" one in
+    (* Set the last node equal to the seed *)
+    Grads.put { forward_tape = tape; backward_tape = [ last_node, seed ] };
     backward' tape
   ;;
 
   let grad leaf =
-    match List.assoc_opt leaf.tag (Grads.get ()) with
+    match List.assoc_opt leaf.tag (Grads.get ()).backward_tape with
     | Some g -> g
     | None -> failwith "Node not in graph"
   ;;
 
   let build (comp : unit -> 'a) =
     Names.with_fresh (fun _ ->
-      let res, _final_state = Grads.withState ~init:[] comp () in
+      let state : Grads.t = { forward_tape = []; backward_tape = [] } in
+      let res, _final_state = Grads.withState ~init:state comp () in
       res)
   ;;
 
   let realize grad =
-    let all_grads = Grads.get () in
-    (* Printf.printf "N grads: %d\n" (List.length all_grads); *)
-    print_endline "-------";
-    print_endline @@ [%show: (string * t) list] all_grads;
-    print_endline "-------";
+    let state = Grads.get () in
+    let open DType in
     let rec realize' grad =
       match grad.expr with
-      | Atom Zero -> DType.zero
-      | Atom One -> DType.one
+      | Atom Zero -> zero
+      | Atom One -> one
       | Atom (Const v) -> v
       | Atom (Val v) -> v
-      | Atom (Ident z) ->
-        let gz = List.assoc z all_grads in
-        realize' gz
-      | Mul (v1, v2) -> DType.( * ) (realize' v1) (realize' v2)
-      | Add (v1, v2) -> DType.( + ) (realize' v1) (realize' v2)
+      | Atom (Ident v) ->
+        let v_expr = List.assoc v state.forward_tape in
+        realize' v_expr
+      | Atom (Adjoint v) ->
+        let v_expr = List.assoc v state.backward_tape in
+        realize' v_expr
+      | Mul (v1, v2) -> realize' v1 * realize' v2
+      | Add (v1, v2) -> realize' v1 + realize' v2
     in
     realize' grad
   ;;
