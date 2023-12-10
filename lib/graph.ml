@@ -108,9 +108,8 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     make_val tag' (Atom (Ident tag'))
   ;;
 
-  (* TODO: Handle exceptions. Maybe use effects and make the state take an exception handler*)
-
-  (* A tape is the tuple string * t. That is, the name of the node and an expression.
+  (* A tape is the tuple string * t.
+     That is, the name of the node and an expression.
      It can be seen as the assignment node = expr.*)
   let make_tape topo_sort =
     let tape =
@@ -124,7 +123,6 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
             let e2' = List.assoc e2.tag nodes in
             let rhs = e1' + e2' in
             let lhs = fresh_val "z_" in
-            (* (lhs.tag, rhs) :: nodes *)
             (node.tag, lhs) :: (lhs.tag, rhs) :: nodes
           | Mul (e1, e2) ->
             let e1' = List.assoc e1.tag nodes in
@@ -200,31 +198,30 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     | None -> failwith "Node not in graph"
   ;;
 
-  (* let _, grads =
-     Grads.withState
-     ~init:[ last_node, make_val "grad_" one ]
-     (fun tape -> backward' tape)
-     tape
-     in
-     List.assoc value.tag grads *)
-
   let build (comp : unit -> 'a) =
     Names.with_fresh (fun _ ->
       let res, _final_state = Grads.withState ~init:[] comp () in
       res)
   ;;
 
-  let rec realize grad =
+  let realize grad =
     let all_grads = Grads.get () in
-    match grad.expr with
-    | Atom Zero -> DType.zero
-    | Atom One -> DType.one
-    | Atom (Const v) -> v
-    | Atom (Val v) -> v
-    | Atom (Ident z) ->
-      let gz = List.assoc z all_grads in
-      realize gz
-    | Mul (v1, v2) -> DType.( * ) (realize v1) (realize v2)
-    | Add (v1, v2) -> DType.( + ) (realize v1) (realize v2)
+    (* Printf.printf "N grads: %d\n" (List.length all_grads); *)
+    print_endline "-------";
+    print_endline @@ [%show: (string * t) list] all_grads;
+    print_endline "-------";
+    let rec realize' grad =
+      match grad.expr with
+      | Atom Zero -> DType.zero
+      | Atom One -> DType.one
+      | Atom (Const v) -> v
+      | Atom (Val v) -> v
+      | Atom (Ident z) ->
+        let gz = List.assoc z all_grads in
+        realize' gz
+      | Mul (v1, v2) -> DType.( * ) (realize' v1) (realize' v2)
+      | Add (v1, v2) -> DType.( + ) (realize' v1) (realize' v2)
+    in
+    realize' grad
   ;;
 end

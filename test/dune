@@ -1,2 +1,6 @@
-(test
- (name micro_caml))
+(library
+ (name test_micro_caml)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (libraries micro_caml))
