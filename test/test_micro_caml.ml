@@ -6,10 +6,10 @@ let%expect_test "Test add with constant" =
   let open Float_Graph in
   let add_const () =
     build (fun () ->
-      let a = value_of 1.0 in
-      let comp = const 2.0 + a in
-      backward comp;
-      print_float @@ realize (grad a));
+      let x = value_of 1.0 in
+      let f = const 2.0 + x in
+      backward f;
+      print_float @@ realize (grad x));
     [%expect {| 1. |}]
   in
   let add_const_var () =
