@@ -2,4 +2,5 @@
  (preprocess
   (pps ppx_deriving.show ppx_deriving.ord))
  (flags :standard -warn-error -27-32-69)
+  ; (ocamlopt_flags  -dcmm)
  (name micro_caml))

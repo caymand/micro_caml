@@ -9,6 +9,8 @@ module type STATE = sig
   val modify : (t -> t) -> unit
 end
 
+(** Run stateful computations with a state.
+    The state is parameterized by the module type [M.t]  *)
 module Make (M : sig
     type t
   end) : STATE with type t = M.t = struct

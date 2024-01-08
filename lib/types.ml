@@ -21,7 +21,7 @@ module Float_t : Data_Type with type t = float = struct
   let one = 1.0
   let ( + ) = Float.add
   let ( * ) = Float.mul
-  let (-) = Float.sub
+  let ( - ) = Float.sub
   let sin = Float.sin
   let cos = Float.cos
   let value_of = Fun.id

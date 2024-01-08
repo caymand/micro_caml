@@ -9,7 +9,7 @@ module type Graph = sig
     | Adjoint of string (* Adjoint variable. TODO: remove *)
     | Val of dtype
     | Const of dtype
-  [@@deriving show]        
+  [@@deriving show]
 
   type expr =
     | Add of t * t
@@ -31,6 +31,7 @@ module type Graph = sig
   val backward : t -> unit
   val grad : t -> t
   val realize : t -> dtype
+  val print_graph : unit -> unit
 end
 
 module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = struct
@@ -52,7 +53,7 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     | Val of dtype
     | Const of dtype
   [@@deriving show]
-        
+
   and expr =
     | Add of t * t
     | Mul of t * t
@@ -62,16 +63,19 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     | Atom of atom
   [@@deriving show]
 
+
+
   (* type tape = node list *)
 
   let one = Atom One
 
-  (* let zero = Atom Zero *)
+  let zero = Atom Zero
   let make_val tag expr = { tag; expr }
 
   let make_op expr base_name =
-    let op_name = Names.fresh ~base_name:base_name () in
+    let op_name = Names.fresh ~base_name () in
     make_val op_name expr
+  ;;
 
   let ( + ) v1 v2 =
     let e = Add (v1, v2) in
@@ -80,12 +84,13 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
 
   let ( * ) v1 v2 =
     let e = Mul (v1, v2) in
-    make_op e "mul" 
-    
+    make_op e "mul"
   ;;
+
   let ( - ) e1 e2 =
-    let e = Sub (e1, e2)
-    in make_op e "sub"
+    let e = Sub (e1, e2) in
+    make_op e "sub"
+  ;;
 
   let cos e = make_op (Cos e) "cos"
   let sin e = make_op (Sin e) "sin"
@@ -109,8 +114,7 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     make_val tag' (Atom (Ident tag'))
   ;;
 
-  let bind_in lhs rhs env  = (lhs, rhs) :: env
-
+  let bind_in lhs rhs env = (lhs, rhs) :: env
 
   (* Do BFS traversal of the graph.*)
   let walk_comp graph =
@@ -143,7 +147,7 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
       let e1' = List.assoc e1.tag nodes in
       let e2' = List.assoc e2.tag nodes in
       let expr = op e1' e2' in
-      let ident'  = fresh_ident "z_" in
+      let ident' = fresh_ident "z_" in
       (* Old ident becomes a reference to the new identifier.
          The new identifier now becomes the expression:
          x = x'; x' = op e1 e2.
@@ -157,7 +161,8 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
       let e' = List.assoc e.tag nodes in
       let expr = make_val (fresh_tag "z_") @@ op e' in
       let nodes' = bind_in ident'.tag expr nodes in
-      bind_in ident ident' nodes' in
+      bind_in ident ident' nodes'
+    in
     let tape =
       List.fold_left
         (fun nodes node ->
@@ -165,16 +170,11 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
           | Atom (Val _) -> (node.tag, node) :: nodes
           | Atom (Const _) -> (node.tag, node) :: nodes
           | Atom _ -> failwith "Needs refactor"
-          | Cos e ->
-            unary_op (fun e' -> Cos e') e node.tag nodes
-          | Sin e ->
-            unary_op (fun e' -> Sin e') e node.tag nodes
-          | Add (e1, e2) -> bin_op (+) e1 e2 node.tag nodes
-          | Mul (e1, e2) ->
-            bin_op ( * ) e1 e2 node.tag nodes
-          | Sub (e1, e2) ->
-            bin_op (-) e1 e2 node.tag nodes
-        )
+          | Cos e -> unary_op (fun e' -> Cos e') e node.tag nodes
+          | Sin e -> unary_op (fun e' -> Sin e') e node.tag nodes
+          | Add (e1, e2) -> bin_op ( + ) e1 e2 node.tag nodes
+          | Mul (e1, e2) -> bin_op ( * ) e1 e2 node.tag nodes
+          | Sub (e1, e2) -> bin_op ( - ) e1 e2 node.tag nodes)
         []
         topo_sort
     in
@@ -193,13 +193,14 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
     type tape = (string * u) list
 
     type t =
-      { forward_tape : tape 
+      { forward_tape : tape
       ; backward_tape : tape (* Stores the adjoint variables *)
       }
   end
 
   module Grads = State.Make (Grad_Env)
-
+  (* TODO: Initialize all variables and simply accumulate.
+     That way we do not need the branch.*)
   let update_grad z v op =
     Grads.modify (fun state ->
       let grads = state.backward_tape in
@@ -218,22 +219,25 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
 
   let backward' tape =
     List.iter
-      (fun (z, node) ->
+      (fun (parent, node) ->
         match node.expr with
         | Atom (Const _) -> ()
         | Atom (Val _) -> ()
         | Add (e1, e2) ->
-          update_grad z e1.tag (fun _ -> make_val "one_" one);
-          update_grad z e2.tag (fun _ -> make_val "one_" one)
+          update_grad parent e1.tag (fun _ -> make_val "one_" one);
+          update_grad parent e2.tag (fun _ -> make_val "one_" one)
         | Mul (e1, e2) ->
-          update_grad z e1.tag (fun _ -> e2);
-          update_grad z e2.tag (fun _ -> e1)
+          update_grad parent e1.tag (fun _ -> e2);
+          update_grad parent e2.tag (fun _ -> e1)
         | Sub (e1, e2) ->
           (* TODO: this should be mul in the future. *)
-          update_grad z e1.tag (fun _ -> make_val "one_" one);
-          update_grad z e2.tag (fun _ -> make_val "one_" one)
-        | Sin _ -> failwith ""
-          (* Gradient should be cos of the input expression *)
+          update_grad parent e1.tag (fun _ -> make_val "one_" one);
+          update_grad parent e2.tag (fun _ -> make_val "one_" one)
+        | Sin e ->
+          update_grad parent e.tag (fun _ -> { node with expr = Cos e })
+        | Cos e ->
+          update_grad parent e.tag (fun _ -> { node with expr = Sin e })
+            
         | _ -> failwith "Incorrect tape")
       tape
   ;;
@@ -260,6 +264,9 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
       let res, _final_state = Grads.withState ~init:state comp () in
       res)
   ;;
+  let print_graph () = let graph = Grads.get () in
+    print_endline @@ [%show: (string * t) list ] graph.backward_tape
+
 
   let realize grad =
     let state = Grads.get () in
@@ -279,7 +286,8 @@ module Make_Graph (DType : Types.Data_Type) : Graph with type dtype = DType.t = 
       | Mul (v1, v2) -> realize' v1 * realize' v2
       | Add (v1, v2) -> realize' v1 + realize' v2
       | Sub (v1, v2) -> realize' v1 - realize' v2
-      | _ -> failwith "foo"
+      | Cos v -> cos (realize' v)
+      | Sin v -> sin (realize' v)
     in
     realize' grad
   ;;
